@@ -1,12 +1,16 @@
 from pathlib import Path
+import os
+import uuid
 import random
 import shapefile
+import fiona
 from . import bound2pixel
 from . import svg2jvm
 
 class JVMapGenerator:
-    def __init__(self):
+    def __init__(self, sourceformat="shapefiles"):
         self.width_pixels = 800
+        self.sourceformat = sourceformat
 
     def writeToFile(self, ofile, jvmap):
         jvmap_filename = ofile.split('.')[0] + '.js'
@@ -26,7 +30,10 @@ class JVMapGenerator:
 
     def printFields(self, ifile):
         fieldsList = []
-        layer = shapefile.Reader(ifile)
+        if(self.sourceformat == "geojson"):
+            layer, directory, input_file_temp_noext = self.geojson2shp(ifile,ifile)
+        else :
+            layer = shapefile.Reader(ifile)
         for field in layer.fields:
             if type(field) is tuple:
                 continue
@@ -36,6 +43,20 @@ class JVMapGenerator:
         print
         print (fieldsList)
         print
+
+        layer.close()
+
+        # delete temp shp file
+        if(self.sourceformat == "geojson"):
+            files = [f for f in os.listdir(directory) if f.startswith(input_file_temp_noext)]
+            for filename in files:
+                file_path = os.path.join(directory, filename)
+                try:
+                    if os.path.isfile(file_path) or os.path.islink(file_path):
+                        os.unlink(file_path)
+                except Exception as e:
+                    print('Failed to delete %s. Reason: %s' % (file_path, e))
+                    
 
     def feature2svg(self, feature, field_num, field_num2, layer_extent, mupp):
         geom = feature[1]
@@ -133,10 +154,40 @@ class JVMapGenerator:
         pix_y = (y - maxy) / mupp
         return [round(float(pix_x), 1), round(float(-pix_y), 1)]
 
+    def geojson2shp(self, input_file, output_file):
+        directory = os.path.dirname(output_file)+"\\temp_jvmapgen_ignore\\"
+        unique_id = str(uuid.uuid4())
+        input_file_temp = directory+"output_"+unique_id+".shp"
+        input_file_temp_noext = "output_"+unique_id
+
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+            print("Directory for temporary file is created at : "+directory)
+
+        # Open the GeoJSON file using fiona
+        with fiona.open(input_file) as src:
+            # Create a new Shapefile using the schema and crs from the GeoJSON
+            # but with a Polygon geometry type instead of the original geometry type
+            schema = src.schema.copy()
+            schema["geometry"] = "Polygon"
+            with fiona.open(input_file_temp, "w", "ESRI Shapefile", schema, src.crs) as dst:
+                # Copy all the features from the GeoJSON to the Shapefile
+                for feature in src:
+                    if feature["geometry"]["type"] in ["Polygon", "MultiPolygon"]:
+                        dst.write(feature)
+
+        shp = shapefile.Reader(input_file_temp)
+
+        return (shp, directory, input_file_temp_noext)
+
+
     def run(self, in_file, out_path, id_name, name_name, width_pixel):
         if(width_pixel > 0):
             self.width_pixels = width_pixel
-        layer = shapefile.Reader(in_file)
+        if(self.sourceformat == "geojson"):
+            layer, directory, input_file_temp_noext = self.geojson2shp(in_file,out_path)
+        else :
+            layer = shapefile.Reader(in_file)
         out_file = out_path
         field_name = id_name
         count_fields = 0
@@ -193,3 +244,16 @@ class JVMapGenerator:
         jv_map = jvm.get_result(Path(out_file).stem)
 
         self.writeToFile(out_file, jv_map)
+
+        layer.close()
+
+        # delete temp shp file
+        if(self.sourceformat == "geojson"):
+            files = [f for f in os.listdir(directory) if f.startswith(input_file_temp_noext)]
+            for filename in files:
+                file_path = os.path.join(directory, filename)
+                try:
+                    if os.path.isfile(file_path) or os.path.islink(file_path):
+                        os.unlink(file_path)
+                except Exception as e:
+                    print('Failed to delete %s. Reason: %s' % (file_path, e))
