@@ -43,7 +43,7 @@ JVMapgenerator:
       width_pixel = 800
       id_field = 'ID'
       name_field = 'Region_Name'
-      input_file= 'path/to/input_file.shp'      # change the input file path to your file, if its a Geojason
+      input_file= 'path/to/input_file.shp'      # change the input file path to your file, if its a GeoJSON
       output_file = 'path/to/output_file.js'
 
   	  generator.run(input_file, output_file, id_field, name_field, width_pixel)
